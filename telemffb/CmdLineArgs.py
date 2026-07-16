@@ -65,6 +65,12 @@ class CmdLineArgs:
     lightmode: Optional[bool]
     """Flag to force light mode theme"""
 
+    backend: Optional[str]
+    """FFB device backend: 'rhino' (default, VPforce HID) or 'diy' (DIY serial broker)"""
+
+    broker: Optional[str]
+    """DIY broker address HOST:PORT (default 127.0.0.1:45111); only used when backend=diy"""
+
     def __init__(
         self,
         teleplot: Optional[str] = None,
@@ -80,7 +86,9 @@ class CmdLineArgs:
         masterport: Optional[str] = None,
         minimize: Optional[bool] = False,
         darkmode: Optional[bool] = False,
-        lightmode: Optional[bool] = False
+        lightmode: Optional[bool] = False,
+        backend: Optional[str] = None,
+        broker: Optional[str] = None
     ) -> None:
         self.teleplot = teleplot
         self.plot = plot
@@ -96,6 +104,8 @@ class CmdLineArgs:
         self.minimize = minimize
         self.darkmode = darkmode
         self.lightmode = lightmode
+        self.backend = backend
+        self.broker = broker
 
     @classmethod
     def parse(cls):
@@ -124,6 +134,11 @@ class CmdLineArgs:
 
         parser.add_argument('--darkmode', action='store_true', help='Force dark mode theme')
         parser.add_argument("--lightmode", action='store_true', help='Force light mode theme')
+
+        parser.add_argument('--backend', type=str, choices=['rhino', 'diy'], default=None,
+                            help="FFB device backend: 'rhino' (default) or 'diy' (DIY serial broker)")
+        parser.add_argument('--broker', type=str, metavar='HOST:PORT', default=None,
+                            help='DIY broker address (default 127.0.0.1:45111); only with --backend diy')
 
         args = parser.parse_args()
 

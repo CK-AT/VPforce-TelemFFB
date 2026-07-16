@@ -106,7 +106,7 @@ class DiyFfbDevice(QObject):
         self.info = DeviceInfo(
             interface_number=0, manufacturer_string="DIY FFB", path=b"diy://broker",
             product_id=0, product_string=f"DIY FFB ({self._role})", release_number=0,
-            serial_number="", usage=0, usage_page=0,
+            serial_number="", usage=0, usage_page=0, vendor_id=0x303b,
         )
         self._fw_version = "unknown"
 
