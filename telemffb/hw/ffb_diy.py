@@ -118,7 +118,11 @@ class DiyFfbDevice(QObject):
     def open(self) -> "DiyFfbDevice":
         self._link.start()
         self._link.client.on("device_info", self._on_device_info)
-        self._link.request_discovery()
+        # Discovery is event-driven: DiyFfbLink probes each axis as GatewayState
+        # reveals it. Request DeviceInfo up front for the identity fields.
+        req = pb.Message()
+        req.device_info_request.gateway_id = pb.GATEWAY_ID_1
+        self._link.client.send(req)
         self._send_timer.start()
         self.deviceConnected.emit(True)
         log.info("DiyFfbDevice open (role=%s)", self._role)
