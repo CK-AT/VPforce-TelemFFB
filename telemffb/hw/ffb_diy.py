@@ -99,10 +99,14 @@ class DiyFfbDevice(QObject):
         self._link = DiyFfbLink()
         self._link.client._addr = (host, port)
 
+        # Neutral placeholders; the real identity is filled from the gateway's
+        # DeviceInfo protobuf on discovery (_on_device_info). This is a synthetic
+        # descriptor for TelemFFB — NOT the ESP32's native USB-HID descriptor,
+        # which this serial/broker backend does not touch.
         self.info = DeviceInfo(
             interface_number=0, manufacturer_string="DIY FFB", path=b"diy://broker",
-            product_id=0x8211, product_string="DiyFfbPedal", release_number=0,
-            serial_number="diy", usage=4, usage_page=0,
+            product_id=0, product_string=f"DIY FFB ({self._role})", release_number=0,
+            serial_number="", usage=0, usage_page=0,
         )
         self._fw_version = "unknown"
 
@@ -261,7 +265,12 @@ class DiyFfbDevice(QObject):
         return False
 
     def _on_device_info(self, msg: pb.Message):
-        self._fw_version = msg.device_info.fw_version or self._fw_version
+        di = msg.device_info
+        self._fw_version = di.fw_version or self._fw_version
+        if di.board:
+            self.info.product_string = di.board
+        if di.device_uid:
+            self.info.serial_number = di.device_uid
 
 
 def open_diy_device(device_type="joystick", host="127.0.0.1", port=45111) -> DiyFfbDevice:
