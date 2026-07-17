@@ -17,14 +17,12 @@ plus housekeeping (info/serial/reset_effects/get_firmware_version) and the Qt
 signals main.py connects.
 
 The pure effect->FlightFfbAction aggregation, transport, discovery and
-axis-state tracking live in the repo-side ``diy_ffb_bridge`` package.
+axis-state tracking live in the vendored ``telemffb.hw.diy`` package.
 """
 
 from __future__ import annotations
 
 import logging
-import os
-import sys
 from typing import Dict, Optional
 
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal
@@ -49,17 +47,9 @@ from telemffb.hw.ffb_rhino import (
     PERIODIC_EFFECTS,
 )
 
-# --- locate the repo-side bridge package ------------------------------------
-_BRIDGE = os.environ.get("DIY_FFB_BRIDGE") or os.path.join(
-    os.path.dirname(__file__), "..", "..", "..",
-    "DIY-Sim-Racing-FFB-Pedal", "tools", "diy_ffb_bridge",
-)
-if _BRIDGE not in sys.path:
-    sys.path.insert(0, os.path.abspath(_BRIDGE))
-
-import diy_ffb_protocol_pb2 as pb  # noqa: E402
-from aggregator import AxisScale, EffectAggregator  # noqa: E402
-from client import DiyFfbLink  # noqa: E402
+from telemffb.hw.diy import diy_ffb_protocol_pb2 as pb
+from telemffb.hw.diy.aggregator import AxisScale, EffectAggregator
+from telemffb.hw.diy.client import DiyFfbLink
 
 log = logging.getLogger("ffb_diy")
 
