@@ -94,6 +94,23 @@ connected in its window.
   fly-through only populate once the gateway has reported each axis present
   (`GatewayState`). Give it a moment after connect.
 
+## Backend limitations (by design, not bugs)
+
+The full `HapticEffect.device` method surface is implemented, so no
+`AttributeError` crashes are expected from the device interface. These behaviours
+differ from a VPforce device and are expected:
+
+- **Device buttons are always empty.** Grip buttons ride a separate USB-HID
+  interface, not this serial channel — so device-button features (force-trim /
+  spring-override buttons in some DCS/HPG heli classes, the "press a button"
+  binding dialog) won't respond through this backend.
+- **`CP_XY()` never reports "no spring center."** The Rhino signals that with an
+  out-of-range center offset; we always report a clamped center. Benign.
+- **VPConf profiles don't apply.** Aircraft profiles with a `vpconf` param, or a
+  global VPConf default (`enableVPConfGlobalDefault`), target the VPforce
+  Configurator — meaningless here. Leave the global VPConf default **off** with
+  the DIY backend.
+
 ## Troubleshooting
 
 | Symptom | Likely cause |
