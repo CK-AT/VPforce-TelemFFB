@@ -100,14 +100,14 @@ The full `HapticEffect.device` method surface is implemented, so no
 `AttributeError` crashes are expected from the device interface. These behaviours
 differ from a VPforce device and are expected:
 
-- **Buttons come from the gateway HID gamepad** (`buttons.py`), not the FFB
-  serial link. `DiyFfbDevice` opens the DIY gamepad interface (VID `0x303b`,
-  product `DIY-FFB-*`) via TelemFFB's hidapi and merges its 48 buttons into
-  `get_input()`, so device-button features (force-trim / spring-override
-  buttons, the binding dialog) work. Requires that gamepad enumerable and
-  `hidapi.dll` present (both true on a normal TelemFFB-from-source setup). If
-  the gamepad isn't found, buttons are simply unavailable (logged once) — the
-  FFB path is unaffected.
+- **Buttons come from the DIY HID gamepads** (`buttons.py`), not the FFB serial
+  link. `DiyFfbDevice` opens **every** DIY gamepad interface (VID `0x303b`,
+  product `DIY-FFB-*` — gateway and each axis controller) via TelemFFB's hidapi
+  and **ORs** their 48 buttons into `get_input()`, so the grip works wherever
+  it's wired. Device-button features (force-trim / spring-override, the binding
+  dialog) work. Requires the gamepads enumerable and `hidapi.dll` present (both
+  true on a normal TelemFFB-from-source setup). If none are found, buttons are
+  simply unavailable (logged once) — the FFB path is unaffected.
 - **`CP_XY()` never reports "no spring center."** The Rhino signals that with an
   out-of-range center offset; we always report a clamped center. Benign.
 - **VPConf profiles don't apply.** Aircraft profiles with a `vpconf` param, or a
