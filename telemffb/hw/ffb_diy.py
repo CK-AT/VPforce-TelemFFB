@@ -23,6 +23,7 @@ axis-state tracking live in the vendored ``telemffb.hw.diy`` package.
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import replace
 from typing import Dict, Optional
 
@@ -51,6 +52,7 @@ from telemffb.hw.ffb_rhino import (
 )
 
 from telemffb.hw.diy import diy_ffb_protocol_pb2 as pb
+from telemffb.hw.diy import references as diy_references
 from telemffb.hw.diy.aggregator import AxisReferences, EffectAggregator
 from telemffb.hw.diy.buttons import BUTTON_COUNT, GripButtonReader
 from telemffb.hw.diy.client import DiyFfbLink
@@ -66,21 +68,8 @@ ROLE_FUNCTIONS = {
     "pedals":     {"x": pb.FUNCTION_ID_FLIGHT_PEDALS},
 }
 
-SEND_INTERVAL_MS = 4           # ~250 Hz downlink tick
-
-# Per-function reference/scaling config (absolute units). TelemFFB emits 0..1
-# ratios; these turn them into the N / mm / N·s/mm the firmware expects, and
-# set the safety base-damping floor. CONSERVATIVE, over-damped placeholders —
-# they MUST be tuned per rig via the DIY configurator (plan 27). Over-damped is
-# safe; under-damped risks oscillation on a direct-drive axis.
-# TODO(plan 27): load/persist these from a per-function config file.
-DEFAULT_REFERENCES = AxisReferences(
-    spring_n_per_mm=2.0,
-    damper_ns_per_mm=1.0,
-    base_damping_ns_per_mm=0.5,   # safety floor — never zero
-    friction_n=5.0,
-    load_n=60.0,
-)
+SEND_INTERVAL_MS = 4              # ~250 Hz downlink tick
+REFERENCES_RELOAD_TICKS = 250    # check the references file ~1×/s for live edits
 
 
 class DiyFfbDevice(QObject):
@@ -92,13 +81,17 @@ class DiyFfbDevice(QObject):
 
     def __init__(self, device_type: str = "joystick",
                  host: str = "127.0.0.1", port: int = 45111,
-                 references: Optional[Dict[int, AxisReferences]] = None):
+                 references_path: Optional[str] = None):
         super().__init__()
         self._role = device_type if device_type in ROLE_FUNCTIONS else "joystick"
         self._assignments_fn = ROLE_FUNCTIONS[self._role]
-        # Per-function references (absolute units). Defaults are conservative
-        # placeholders; the configurator (plan 27) will supply tuned values.
-        self._references: Dict[int, AxisReferences] = references or {}
+        # Per-function references (absolute units), tuned per rig in a host-side
+        # config file (plan 27 §2.1); re-read live on change. Falls back to
+        # conservative defaults when unset.
+        self._references_path = references_path or diy_references.default_path()
+        self._references: Dict[int, AxisReferences] = diy_references.load(self._references_path)
+        self._references_mtime = self._refs_mtime()
+        self._reload_tick = 0
 
         self._agg = EffectAggregator()
         self._effect_types: Dict[int, int] = {}   # effect_id -> type
@@ -238,7 +231,7 @@ class DiyFfbDevice(QObject):
     def _axis_refs(self, function_id: int) -> AxisReferences:
         """References for a function: configured feel values (or conservative
         defaults), with the trim range filled from the discovered pos limits."""
-        base = self._references.get(function_id) or DEFAULT_REFERENCES
+        base = self._references.get(function_id) or diy_references.DEFAULTS
         rng = self._pos_range(function_id)
         mm_half = ((rng[1] - rng[0]) / 2.0) if rng else base.trim_mm_half_range
         return replace(base, trim_mm_half_range=mm_half or base.trim_mm_half_range)
@@ -246,7 +239,27 @@ class DiyFfbDevice(QObject):
     def _pos_range(self, function_id: int) -> Optional[tuple]:
         return self._link.topo.pos_range(function_id)
 
+    def _refs_mtime(self) -> float:
+        try:
+            return os.path.getmtime(self._references_path)
+        except OSError:
+            return 0.0
+
+    def _maybe_reload_references(self):
+        """Re-read the references file when it changes (live tuning). Checked
+        ~1×/s, not every tick."""
+        self._reload_tick += 1
+        if self._reload_tick < REFERENCES_RELOAD_TICKS:
+            return
+        self._reload_tick = 0
+        mtime = self._refs_mtime()
+        if mtime and mtime != self._references_mtime:
+            self._references_mtime = mtime
+            self._references = diy_references.load(self._references_path, create_missing=False)
+            log.info("reloaded DIY references from %s", self._references_path)
+
     def _tick(self):
+        self._maybe_reload_references()
         for function_id, action in self._agg.aggregate(self._assignments()).items():
             self._link.send_flight_ffb(function_id, action)
 
@@ -337,7 +350,9 @@ class DiyFfbDevice(QObject):
             self.info.serial_number = di.device_uid
 
 
-def open_diy_device(device_type="joystick", host="127.0.0.1", port=45111) -> DiyFfbDevice:
+def open_diy_device(device_type="joystick", host="127.0.0.1", port=45111,
+                    references_path=None) -> DiyFfbDevice:
     """Factory for the main.py backend branch: build, open, and return the
     device to assign to HapticEffect.device."""
-    return DiyFfbDevice(device_type=device_type, host=host, port=port).open()
+    return DiyFfbDevice(device_type=device_type, host=host, port=port,
+                        references_path=references_path).open()

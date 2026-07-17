@@ -389,7 +389,8 @@ def _initialize_device_connection():
                 host, _, p = G.args.broker.partition(":")
                 port = int(p) if p else port
             dev = open_diy_device(device_type=G.device_type or "joystick",
-                                  host=host, port=port)
+                                  host=host, port=port,
+                                  references_path=getattr(G.args, "references", None))
             HapticEffect.device = dev
             logging.info(f"Using DIY FFB backend (broker {host}:{port}, role {G.device_type})")
         else:

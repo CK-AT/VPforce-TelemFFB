@@ -74,6 +74,9 @@ class CmdLineArgs:
     broker_serial: Optional[str]
     """Gateway serial COM port for the auto-started broker (master only). If unset, an external broker is assumed."""
 
+    references: Optional[str]
+    """Path to the DIY per-function references JSON (backend=diy); default is the platform config dir."""
+
     def __init__(
         self,
         teleplot: Optional[str] = None,
@@ -92,7 +95,8 @@ class CmdLineArgs:
         lightmode: Optional[bool] = False,
         backend: Optional[str] = None,
         broker: Optional[str] = None,
-        broker_serial: Optional[str] = None
+        broker_serial: Optional[str] = None,
+        references: Optional[str] = None
     ) -> None:
         self.teleplot = teleplot
         self.plot = plot
@@ -111,6 +115,7 @@ class CmdLineArgs:
         self.backend = backend
         self.broker = broker
         self.broker_serial = broker_serial
+        self.references = references
 
     @classmethod
     def parse(cls):
@@ -146,6 +151,8 @@ class CmdLineArgs:
                             help='DIY broker address (default 127.0.0.1:45111); only with --backend diy')
         parser.add_argument('--broker-serial', type=str, metavar='COMx', default=None,
                             help='Gateway serial port; master auto-starts the broker on it (--backend diy)')
+        parser.add_argument('--references', type=str, metavar='PATH', default=None,
+                            help='DIY per-function references JSON (--backend diy); default = platform config dir')
 
         args = parser.parse_args()
 

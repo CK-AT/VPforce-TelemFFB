@@ -83,6 +83,21 @@ connected in its window.
 
 ---
 
+## Tuning the feel (references) — do this early, it's a safety knob
+
+TelemFFB sends 0..1 ratios; `DiyFfbDevice` scales them to absolute N / mm /
+N·s/mm using a **per-function references file** (`references.py`). On first run
+it writes a template at `%LOCALAPPDATA%\VPForce-TelemFFB\diy_references.json`
+(override with `--references PATH`). Edit it and save — TelemFFB **re-reads it
+live** (~1×/s) while driving.
+
+Each function has `spring_n_per_mm`, `damper_ns_per_mm`,
+**`base_damping_ns_per_mm`**, `friction_n`, `load_n`. The defaults are
+deliberately **conservative / over-damped** — safe but stiff. Tune them down to
+taste per axis. **Keep `base_damping_ns_per_mm` > 0** on every axis: it's the
+always-on damping floor that stops a direct-drive axis from oscillating when the
+active ratio is zero.
+
 ## Known rough edges (expected, not failures)
 
 - **Force scaling is uncalibrated** (`k_spring` gain, `max_force_n = 60 N`, trim
