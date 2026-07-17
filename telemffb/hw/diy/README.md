@@ -29,20 +29,27 @@ is that repo's `proto/diy_ffb_protocol.proto` (see rationale in its
 
 Python 3.11+, `pyserial` (broker), `protobuf` (clients/monitor).
 
-## Run (from the TelemFFB repo root, as package modules)
+## Run
+
+Ensure SimHub is **not** holding the gateway COM port (single-open).
+
+**One-shot (recommended):** the master auto-starts the broker and propagates the
+DIY backend to its autolaunched children (cyclic / collective / pedals):
 
 ```bash
-# 1. Ensure SimHub is NOT holding the gateway COM port (single-open).
-# 2. Broker owns the port:
-python -m telemffb.hw.diy.broker --port COM7 -v
-
-# 3. Watch decoded uplink (separate terminal):
-python -m telemffb.hw.diy.monitor --filter axis_state
-python -m telemffb.hw.diy.monitor --request-info
+python main.py --backend diy --broker-serial COM7
 ```
 
-TelemFFB then connects to the broker via `python main.py --backend diy
-[--broker HOST:PORT] -t joystick|collective|pedals`.
+**Manual broker** (e.g. for the smoke test, or an external broker): omit
+`--broker-serial` and run the broker yourself:
+
+```bash
+python -m telemffb.hw.diy.broker --port COM7 -v
+python -m telemffb.hw.diy.monitor --filter axis_state   # watch decoded uplink
+python main.py --backend diy -t joystick                # then the instance(s)
+```
+
+Broker TCP address defaults to `127.0.0.1:45111`; override with `--broker HOST:PORT`.
 
 ## Test (offline, no hardware)
 

@@ -3582,6 +3582,14 @@ def check_launch_instance(dev_type :str, master_port : int) -> subprocess.Popen:
         elif G.args.lightmode:
             args.append('--lightmode')
 
+        # Propagate the DIY backend selection to children so they connect to the
+        # broker instead of the Rhino HID. The broker (serial port) is owned by
+        # the master only, so --broker-serial is deliberately NOT propagated.
+        if getattr(G.args, 'backend', None):
+            args += ['--backend', G.args.backend]
+            if G.args.broker:
+                args += ['--broker', G.args.broker]
+
         logging.info("Auto-Launch: starting instance: %s", args)
         proc = ChildPopen(args)
         proc.udp_port = 60000 + int(usbpid)

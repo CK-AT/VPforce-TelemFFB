@@ -91,6 +91,31 @@ def send_test_message():
         else:
             G.ipc_instance.send_message("TEST MESSAGE")
 
+def _start_diy_broker():
+    """Master-only: auto-start the in-process DIY serial broker so all instances
+    (master + children) can share the single gateway COM port. No-op unless
+    --backend diy and --broker-serial are set; without --broker-serial an
+    external broker is assumed."""
+    if not G.master_instance or getattr(G.args, "backend", None) != "diy":
+        return
+    serial_port = getattr(G.args, "broker_serial", None)
+    if not serial_port:
+        logging.info("DIY backend: no --broker-serial given; expecting an external broker")
+        return
+    from telemffb.hw.diy.broker import SerialBridge, open_serial, DEFAULT_LISTEN
+    host, tcp = DEFAULT_LISTEN
+    if G.args.broker:
+        h, _, p = G.args.broker.partition(":")
+        host, tcp = (h or host), (int(p) if p else tcp)
+    try:
+        ser = open_serial(serial_port)
+        G.diy_broker = SerialBridge(ser, (host, tcp))
+        G.diy_broker.start()
+        logging.info("DIY broker started: serial %s -> %s:%d", serial_port, host, tcp)
+    except Exception:
+        logging.exception("Failed to start DIY broker on %s", serial_port)
+
+
 def _launch_children():
     if not G.system_settings.autolaunchMaster:
         return
@@ -734,6 +759,12 @@ def _cleanup_on_exit(dev_serial):
         G.ipc_instance.notify_close_children()
         G.ipc_instance.stop()
 
+    if getattr(G, "diy_broker", None):
+        try:
+            G.diy_broker.stop()
+        except Exception:
+            logging.exception("Error stopping DIY broker")
+
     G.sim_listeners.stop_all()
     G.telem_manager.quit()
 
@@ -938,6 +969,9 @@ def main():
     # ============================================================================
     # PHASE 9: Device Connection and Firmware Validation
     # ============================================================================
+    # DIY backend: master owns the broker (gateway COM port); start it before any
+    # instance connects.
+    _start_diy_broker()
     # Connect to Rhino FFB device and validate firmware version
     dev, dev_serial, dev_firmware_version = _initialize_device_connection()
 

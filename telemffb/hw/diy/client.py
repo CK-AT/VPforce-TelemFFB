@@ -153,11 +153,23 @@ class BrokerClient:
         """Register a handler for a Message oneof field name, e.g. 'axis_state'."""
         self._handlers.setdefault(payload_type, []).append(cb)
 
-    def connect(self) -> None:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.connect(self._addr)
-        s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-        self._sock = s
+    def connect(self, retries: int = 25, delay: float = 0.2) -> None:
+        # Tolerate the broker not being up yet: a child instance may start before
+        # the master's broker has bound. Retry briefly before giving up.
+        import time
+        last = None
+        for _ in range(max(1, retries)):
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                s.connect(self._addr)
+                s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                self._sock = s
+                break
+            except OSError as e:
+                last = e
+                time.sleep(delay)
+        else:
+            raise ConnectionError(f"broker at {self._addr} unreachable: {last}")
         self._reader = threading.Thread(target=self._read_loop, name="broker-rx",
                                         daemon=True)
         self._reader.start()

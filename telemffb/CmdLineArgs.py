@@ -71,6 +71,9 @@ class CmdLineArgs:
     broker: Optional[str]
     """DIY broker address HOST:PORT (default 127.0.0.1:45111); only used when backend=diy"""
 
+    broker_serial: Optional[str]
+    """Gateway serial COM port for the auto-started broker (master only). If unset, an external broker is assumed."""
+
     def __init__(
         self,
         teleplot: Optional[str] = None,
@@ -88,7 +91,8 @@ class CmdLineArgs:
         darkmode: Optional[bool] = False,
         lightmode: Optional[bool] = False,
         backend: Optional[str] = None,
-        broker: Optional[str] = None
+        broker: Optional[str] = None,
+        broker_serial: Optional[str] = None
     ) -> None:
         self.teleplot = teleplot
         self.plot = plot
@@ -106,6 +110,7 @@ class CmdLineArgs:
         self.lightmode = lightmode
         self.backend = backend
         self.broker = broker
+        self.broker_serial = broker_serial
 
     @classmethod
     def parse(cls):
@@ -139,6 +144,8 @@ class CmdLineArgs:
                             help="FFB device backend: 'rhino' (default) or 'diy' (DIY serial broker)")
         parser.add_argument('--broker', type=str, metavar='HOST:PORT', default=None,
                             help='DIY broker address (default 127.0.0.1:45111); only with --backend diy')
+        parser.add_argument('--broker-serial', type=str, metavar='COMx', default=None,
+                            help='Gateway serial port; master auto-starts the broker on it (--backend diy)')
 
         args = parser.parse_args()
 
