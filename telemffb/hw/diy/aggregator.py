@@ -42,10 +42,23 @@ X_BLOCK, Y_BLOCK = 0, 1  # SetCondition.parameterBlockOffset
 
 
 @dataclass
-class AxisScale:
-    """Per-function conversion from normalized units to FlightFfbAction units."""
-    mm_half_range: float = 1.0   # normalized cpOffset [-1..1] -> trim_offset (mm)
-    max_force_n: float = 1.0     # normalized load [-1..1] -> load_force (N)
+class AxisReferences:
+    """Per-function references that scale TelemFFB's 0..1 ratios into the
+    ABSOLUTE physical units the firmware expects (it runs on N / mm / N·s/mm).
+
+    TelemFFB emits every effect as a ratio to a baseline; our device is that
+    baseline. These live host-side in DiyFfbDevice (the firmware already works
+    in absolute units) and are edited by the DIY configurator (plan 27).
+
+    `base_damping_ns_per_mm` is a SAFETY floor: always added to k_damper so a
+    direct-drive axis is never left undamped (ratio 0 or between effects).
+    """
+    spring_n_per_mm: float = 1.0        # spring coef 1.0 -> N/mm
+    damper_ns_per_mm: float = 1.0       # damper coef 1.0 -> N·s/mm
+    base_damping_ns_per_mm: float = 0.0  # always-applied damping floor (safety)
+    friction_n: float = 1.0             # friction coef 1.0 -> N
+    load_n: float = 1.0                 # constant magnitude 1.0 -> N
+    trim_mm_half_range: float = 1.0     # cpOffset [-1..1] -> trim_offset (mm)
 
 
 @dataclass
@@ -121,20 +134,22 @@ class EffectAggregator:
 
     # --- aggregation -------------------------------------------------------
     def aggregate(
-        self, assignments: Dict[str, Tuple[int, AxisScale]]
+        self, assignments: Dict[str, Tuple[int, AxisReferences]]
     ) -> Dict[int, pb.FlightFfbAction]:
         """Collapse active effects into one FlightFfbAction per assigned function.
 
-        assignments: {'x': (function_id, AxisScale), 'y': (function_id, AxisScale)}
-        Single-axis roles pass only {'x': ...}.
+        assignments: {'x': (function_id, AxisReferences), 'y': (function_id, ...)}
+        Single-axis roles pass only {'x': ...}. Ratios are scaled to absolute
+        physical units by the per-function references (the firmware runs on
+        N / mm / N·s/mm).
         """
         out: Dict[int, pb.FlightFfbAction] = {}
-        for axis_key, (function_id, scale) in assignments.items():
+        for axis_key, (function_id, refs) in assignments.items():
             block = X_BLOCK if axis_key == "x" else Y_BLOCK
-            out[function_id] = self._aggregate_axis(axis_key, block, scale)
+            out[function_id] = self._aggregate_axis(axis_key, block, refs)
         return out
 
-    def _aggregate_axis(self, axis_key: str, block: int, scale: AxisScale) -> pb.FlightFfbAction:
+    def _aggregate_axis(self, axis_key: str, block: int, refs: AxisReferences) -> pb.FlightFfbAction:
         k_spring = k_damper = k_friction = 0.0
         spring_cp_weighted = 0.0
         spring_coef_total = 0.0
@@ -171,11 +186,14 @@ class EffectAggregator:
 
         g = self.master_gain
         act = pb.FlightFfbAction()
-        act.k_spring = k_spring * g
-        act.k_damper = k_damper * g
-        act.k_friction = k_friction * g
-        act.trim_offset = trim_norm * scale.mm_half_range
-        act.load_force = load_norm * g * scale.max_force_n
+        # Scale each 0..1 ratio to absolute physical units via the references.
+        act.k_spring = k_spring * refs.spring_n_per_mm * g
+        # Base damping is a SAFETY floor: always applied, never scaled away by
+        # gain, so the axis is never left undamped between/without effects.
+        act.k_damper = refs.base_damping_ns_per_mm + k_damper * refs.damper_ns_per_mm * g
+        act.k_friction = k_friction * refs.friction_n * g
+        act.trim_offset = trim_norm * refs.trim_mm_half_range
+        act.load_force = load_norm * refs.load_n * g
         return act
 
     @staticmethod

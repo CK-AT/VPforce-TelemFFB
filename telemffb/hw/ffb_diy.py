@@ -23,6 +23,7 @@ axis-state tracking live in the vendored ``telemffb.hw.diy`` package.
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from typing import Dict, Optional
 
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal
@@ -50,7 +51,7 @@ from telemffb.hw.ffb_rhino import (
 )
 
 from telemffb.hw.diy import diy_ffb_protocol_pb2 as pb
-from telemffb.hw.diy.aggregator import AxisScale, EffectAggregator
+from telemffb.hw.diy.aggregator import AxisReferences, EffectAggregator
 from telemffb.hw.diy.buttons import BUTTON_COUNT, GripButtonReader
 from telemffb.hw.diy.client import DiyFfbLink
 
@@ -65,8 +66,21 @@ ROLE_FUNCTIONS = {
     "pedals":     {"x": pb.FUNCTION_ID_FLIGHT_PEDALS},
 }
 
-DEFAULT_MAX_FORCE_N = 60.0     # normalized load [-1..1] -> N; calibrate on HW
 SEND_INTERVAL_MS = 4           # ~250 Hz downlink tick
+
+# Per-function reference/scaling config (absolute units). TelemFFB emits 0..1
+# ratios; these turn them into the N / mm / N·s/mm the firmware expects, and
+# set the safety base-damping floor. CONSERVATIVE, over-damped placeholders —
+# they MUST be tuned per rig via the DIY configurator (plan 27). Over-damped is
+# safe; under-damped risks oscillation on a direct-drive axis.
+# TODO(plan 27): load/persist these from a per-function config file.
+DEFAULT_REFERENCES = AxisReferences(
+    spring_n_per_mm=2.0,
+    damper_ns_per_mm=1.0,
+    base_damping_ns_per_mm=0.5,   # safety floor — never zero
+    friction_n=5.0,
+    load_n=60.0,
+)
 
 
 class DiyFfbDevice(QObject):
@@ -78,11 +92,13 @@ class DiyFfbDevice(QObject):
 
     def __init__(self, device_type: str = "joystick",
                  host: str = "127.0.0.1", port: int = 45111,
-                 max_force_n: float = DEFAULT_MAX_FORCE_N):
+                 references: Optional[Dict[int, AxisReferences]] = None):
         super().__init__()
         self._role = device_type if device_type in ROLE_FUNCTIONS else "joystick"
         self._assignments_fn = ROLE_FUNCTIONS[self._role]
-        self._max_force_n = max_force_n
+        # Per-function references (absolute units). Defaults are conservative
+        # placeholders; the configurator (plan 27) will supply tuned values.
+        self._references: Dict[int, AxisReferences] = references or {}
 
         self._agg = EffectAggregator()
         self._effect_types: Dict[int, int] = {}   # effect_id -> type
@@ -213,16 +229,19 @@ class DiyFfbDevice(QObject):
 
     # --- downlink tick -----------------------------------------------------
     def _assignments(self) -> Dict[str, tuple]:
-        """Map axis-key -> (function_id, AxisScale) from role + discovered config."""
+        """Map axis-key -> (function_id, AxisReferences) from role + config."""
         out = {}
         for key, fn in self._assignments_fn.items():
-            out[key] = (fn, self._axis_scale(fn))
+            out[key] = (fn, self._axis_refs(fn))
         return out
 
-    def _axis_scale(self, function_id: int) -> AxisScale:
+    def _axis_refs(self, function_id: int) -> AxisReferences:
+        """References for a function: configured feel values (or conservative
+        defaults), with the trim range filled from the discovered pos limits."""
+        base = self._references.get(function_id) or DEFAULT_REFERENCES
         rng = self._pos_range(function_id)
-        mm_half = (rng[1] - rng[0]) / 2.0 if rng else 1.0
-        return AxisScale(mm_half_range=mm_half or 1.0, max_force_n=self._max_force_n)
+        mm_half = ((rng[1] - rng[0]) / 2.0) if rng else base.trim_mm_half_range
+        return replace(base, trim_mm_half_range=mm_half or base.trim_mm_half_range)
 
     def _pos_range(self, function_id: int) -> Optional[tuple]:
         return self._link.topo.pos_range(function_id)
@@ -265,7 +284,8 @@ class DiyFfbDevice(QObject):
         return int(round(max(-1.0, min(1.0, norm)) * 4096))
 
     def _norm_force(self, function_id: int) -> int:
-        f = self._link.state.function_force(function_id) / (self._max_force_n or 1.0)
+        ref_n = self._axis_refs(function_id).load_n or 1.0
+        f = self._link.state.function_force(function_id) / ref_n
         return int(round(max(-1.0, min(1.0, f)) * 4096))
 
     def _trim_cp(self, function_id: int) -> int:
