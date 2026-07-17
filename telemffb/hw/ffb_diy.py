@@ -51,6 +51,7 @@ from telemffb.hw.ffb_rhino import (
 
 from telemffb.hw.diy import diy_ffb_protocol_pb2 as pb
 from telemffb.hw.diy.aggregator import AxisScale, EffectAggregator
+from telemffb.hw.diy.buttons import BUTTON_COUNT, GripButtonReader
 from telemffb.hw.diy.client import DiyFfbLink
 
 log = logging.getLogger("ffb_diy")
@@ -106,10 +107,15 @@ class DiyFfbDevice(QObject):
         self._send_timer.setInterval(SEND_INTERVAL_MS)
         self._send_timer.timeout.connect(self._tick)
 
+        # Grip buttons ride the gateway's native-USB HID gamepad, not the FFB
+        # serial link. Read them there and surface them via get_input().
+        self._buttons = GripButtonReader(on_change=self._on_buttons_changed)
+
     # --- lifecycle ---------------------------------------------------------
     def open(self) -> "DiyFfbDevice":
         self._link.start()
         self._link.client.on("device_info", self._on_device_info)
+        self._buttons.start()
         # Discovery is event-driven: DiyFfbLink probes each axis as GatewayState
         # reveals it. Request DeviceInfo up front for the identity fields.
         req = pb.Message()
@@ -122,8 +128,19 @@ class DiyFfbDevice(QObject):
 
     def close(self):
         self._send_timer.stop()
+        self._buttons.stop()
         self._link.client.close()
         self.deviceConnected.emit(False)
+
+    def _on_buttons_changed(self, old: int, new: int):
+        """Emit per-button edge signals (for the button-binding UI / active
+        button display). Called from the reader thread; pyqtSignal.emit is
+        thread-safe (queued to the receiver's thread)."""
+        changed = old ^ new
+        for i in range(BUTTON_COUNT):
+            bit = 1 << i
+            if changed & bit:
+                (self.buttonPressed if (new & bit) else self.buttonReleased).emit(i + 1)
 
     @property
     def serial(self):
@@ -230,6 +247,10 @@ class DiyFfbDevice(QObject):
             rep.RawY = rep.Y
             rep.ForceY = self._norm_force(y_fn)
             rep.CP_offsetY = self._trim_cp(y_fn)
+        # Grip buttons (from the gateway HID gamepad) -> the 48-button fields.
+        b = self._buttons.buttons()
+        rep.Button0_31 = b & 0xFFFFFFFF
+        rep.Button32_47 = (b >> 32) & 0xFFFF
         return rep
 
     def _norm_pos(self, function_id: int) -> int:
