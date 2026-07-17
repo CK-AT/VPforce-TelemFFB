@@ -396,6 +396,12 @@ def _initialize_device_connection():
             dev = HapticEffect.open(pid=int(G.device_usbpid, 16))
 
         def connect_signals():
+            # main_window is created in a later startup phase; if the event loop
+            # spins before then (e.g. a network/version check), retry until it
+            # exists so the signals actually get connected.
+            if getattr(G, "main_window", None) is None:
+                QTimer.singleShot(50, connect_signals)
+                return
             dev.deviceConnected.connect(G.main_window.update_device_status)
             dev.buttonPressed.connect(G.main_window.get_active_buttons)
             dev.buttonReleased.connect(G.main_window.get_active_buttons)

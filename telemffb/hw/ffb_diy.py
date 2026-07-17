@@ -30,8 +30,10 @@ from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 from telemffb.hw.ffb_rhino import (
     DeviceInfo,
     EFFECT_CONSTANT,
+    FFB_GAIN_MASTER,
     FFBEffectHandle,
     FFBReport_EffectOperation,
+    FFBReport_Get_Gains_Feature_Data,
     FFBReport_Input,
     FFBReport_SetConstantForce,
     FFBReport_SetCondition,
@@ -254,9 +256,36 @@ class DiyFfbDevice(QObject):
         norm = (act.trim_offset / mm_half) if mm_half else 0.0
         return int(round(max(-1.0, min(1.0, norm)) * 4096))
 
+    # --- gains (FFBRhino-compatible; the Configurator reads/writes these) --
+    def get_gains(self) -> FFBReport_Get_Gains_Feature_Data:
+        """Report per-effect gains (0-100). We only model a master gain; the
+        rest are reported at 100 (full) since our aggregation applies gains
+        as it collapses effects."""
+        g = FFBReport_Get_Gains_Feature_Data()
+        master = int(round(self._agg.master_gain * 100))
+        g.master_gain = max(0, min(100, master))
+        g.periodic_gain = g.spring_gain = g.damper_gain = 100
+        g.inertia_gain = g.friction_gain = g.constant_gain = 100
+        return g
+
+    def set_gain(self, slider_id: int, value: int) -> None:
+        """Value is 0-100. Only the master gain is modelled; it scales all
+        aggregated forces (see EffectAggregator)."""
+        if slider_id == FFB_GAIN_MASTER:
+            self._agg.master_gain = max(0, min(100, int(value))) / 100.0
+
+    def set_deadzone(self, deadzone) -> None:
+        pass  # deadzone handled on-device / in SimHub config; no-op here
+
     # --- optional / no-op device methods ----------------------------------
     def supports_axis_override(self) -> bool:
         return False
+
+    def send_axis_override(self, *args, **kwargs) -> None:
+        pass
+
+    def clear_axis_override(self) -> None:
+        pass
 
     def _on_device_info(self, msg: pb.Message):
         di = msg.device_info
