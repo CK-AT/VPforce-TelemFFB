@@ -417,7 +417,9 @@ def _initialize_device_connection():
         G.device_firmware_version = dev_firmware_version
         dev_serial = dev.serial
 
-        if dev_firmware_version:
+        if getattr(G.args, "backend", None) == "diy":
+            logging.info(f"DIY device firmware: {dev_firmware_version}")
+        elif dev_firmware_version:
             logging.info(f"Rhino Firmware: {dev_firmware_version}")
             _check_firmware_version(dev_firmware_version, min_firmware_version)
 
@@ -713,10 +715,11 @@ def _check_version_update():
 def _check_system_settings_required():
     """Check if system settings dialog should be opened."""
 
-    #for key in ["devpath_joystick", "devpath_pedals", "devpath_collective", "devpath_trimwheel"]:
-    #    if G.system_settings.get(key, None):
-
-    #        return
+    # The DIY backend is assigned via --backend/--broker, not a VPforce devpath,
+    # so the "device not assigned" prompt (and auto-opening settings) never
+    # applies — it would fire on every instance.
+    if getattr(G.args, "backend", None) == "diy":
+        return
     if G.device_devpath is None:
         QMessageBox.information(None, "System Settings Required",
                                 f"VPforce Device for {G.device_type} is not assigned.  Please assign a device in System Settings.")
