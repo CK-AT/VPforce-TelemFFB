@@ -693,6 +693,8 @@ class SimConnectManager(threading.Thread):
         updates. L:vars are sent as simulation datums, while standard events
         use the SimConnect event system.
         """
+        if os.environ.get("DIY_AXIS_DEBUG"):
+            self._tx_debug(len(self._events_to_send))
         while self._events_to_send:
             event, data = self._events_to_send.pop(0)
             logging.debug(f"event {event}   data {data}")
@@ -701,10 +703,31 @@ class SimConnectManager(threading.Thread):
             else:
                 try:
                     self.sc.send_event(event, data)
+                    if os.environ.get("DIY_AXIS_DEBUG") and "_SET" in event and ("AXIS" in event or "ROTOR" in event):
+                        self._tx_axis_sent = getattr(self, "_tx_axis_sent", 0) + 1
                     # self.telem_data[event] = data
                 except Exception as e:
                     logging.error(f"Error setting event:{event} value:{data} to MSFS: {e}")
                     # self.telem_data['error'] = 1
+
+    def _tx_debug(self, queue_len):
+        """DIY_AXIS_DEBUG: once/sec, log how often tx_events_to_msfs actually
+        runs (SC-loop flush rate), the actual AXIS/ROTOR *_SET transmit count,
+        and the max queue backlog. Distinguishes 'flush lags' (TelemFFB-side)
+        from 'transmit is fast, MSFS applies slowly' (MSFS-side)."""
+        st = getattr(self, "_tx_dbg", None)
+        now = time.monotonic()
+        if st is None:
+            self._tx_dbg = {"flushes": 1, "maxq": queue_len, "t0": now}
+            self._tx_axis_sent = 0
+            return
+        st["flushes"] += 1
+        st["maxq"] = max(st["maxq"], queue_len)
+        if now - st["t0"] >= 1.0:
+            logging.info("AXIS-DBG tx: %d flushes/s, %d axis-sets sent/s, max queue backlog=%d",
+                         st["flushes"], getattr(self, "_tx_axis_sent", 0), st["maxq"])
+            self._tx_dbg = {"flushes": 0, "maxq": queue_len, "t0": now}
+            self._tx_axis_sent = 0
 
     def _read_telem(self) -> bool:
         """
