@@ -637,13 +637,36 @@ class SimConnectManager(threading.Thread):
     def send_event_to_msfs(self, event, data: int = 0):
         """
         Queue an event to be sent to MSFS.
-        
+
         Args:
             event (str): The event name or L:var name
             data (int): The event data/value (default: 0)
         """
         if event == "DO_NOT_SEND": return
         self._events_to_send.append((event, data))
+        # Opt-in axis-rate instrumentation (DIY_AXIS_DEBUG=1): once/sec, log how
+        # often an AXIS/ROTOR *_SET is queued and its value range — tells us
+        # whether TelemFFB is producing a fast, changing axis stream (→ the 2 Hz
+        # is MSFS applying it slowly) or a slow one (→ upstream in TelemFFB).
+        if os.environ.get("DIY_AXIS_DEBUG") and "_SET" in event and ("AXIS" in event or "ROTOR" in event):
+            self._axis_debug(event, data)
+
+    def _axis_debug(self, event, data):
+        st = getattr(self, "_axis_dbg", None)
+        if st is None:
+            st = self._axis_dbg = {}
+        now = time.monotonic()
+        e = st.get(event)
+        if e is None:
+            st[event] = {"n": 1, "lo": data, "hi": data, "t0": now}
+            return
+        e["n"] += 1
+        e["lo"] = min(e["lo"], data)
+        e["hi"] = max(e["hi"], data)
+        if now - e["t0"] >= 1.0:
+            logging.info("AXIS-DBG queue %s: %d/s  last=%s  range=[%s,%s]",
+                         event, e["n"], data, e["lo"], e["hi"])
+            st[event] = {"n": 0, "lo": data, "hi": data, "t0": now}
 
     def tx_simdatums_to_msfs(self):
         """

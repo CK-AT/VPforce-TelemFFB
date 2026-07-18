@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from dataclasses import replace
 from typing import Dict, Optional
 
@@ -283,7 +284,25 @@ class DiyFfbDevice(QObject):
         b = self._buttons.buttons()
         rep.Button0_31 = b & 0xFFFFFFFF
         rep.Button32_47 = (b >> 32) & 0xFFFF
+        if os.environ.get("DIY_AXIS_DEBUG"):
+            self._input_debug(rep)
         return rep
+
+    def _input_debug(self, rep):
+        """Opt-in (DIY_AXIS_DEBUG=1): once/sec, log how often get_input() is
+        polled and the axis value range — the counterpart to the SimConnect
+        axis-queue log, so one run brackets the whole pipeline."""
+        st = getattr(self, "_input_dbg", None)
+        now = time.monotonic()
+        if st is None or now - st["t0"] >= 1.0:
+            if st is not None:
+                log.info("AXIS-DBG get_input: %d/s  X=%d Y=%d  X range=[%d,%d]",
+                         st["n"], rep.X, rep.Y, st["lo"], st["hi"])
+            self._input_dbg = {"n": 1, "lo": rep.X, "hi": rep.X, "t0": now}
+        else:
+            st["n"] += 1
+            st["lo"] = min(st["lo"], rep.X)
+            st["hi"] = max(st["hi"], rep.X)
 
     def _norm_pos(self, function_id: int) -> int:
         """Function position -> int16 [-4096..4096]."""
